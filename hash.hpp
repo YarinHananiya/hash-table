@@ -1,4 +1,11 @@
-#include <algorithm>  // std::find_if
+/*******************************************************************************
+ * hash_table (fixed size buckets)
+ * Author: Yarin Hananiya
+ * ****************************************************************************/
+#ifndef HASH_HPP
+#define HASH_HPP
+
+#include <algorithm>  // std::find_if, std::all_of
 #include <array>      // std::array
 #include <cstdint>    // __SIZE_MAX__
 #include <functional> // std::equal_to, std::mem_fn
@@ -9,7 +16,7 @@
 #include <type_traits> // std::is_invocable_r_v, std::enable_if_t, std::conditional
 #include <utility>     // std::pair
 	
-namespace ilrd {
+namespace container {
 
 template<typename Key,
          typename Value,
@@ -21,9 +28,9 @@ template<typename Key,
          typename = std::enable_if_t<(N < __SIZE_MAX__ - 1)>,
          typename = std::enable_if_t<std::is_invocable_r_v<std::size_t, HashFunc, Key>>,
          typename = std::enable_if_t<std::is_same_v<typename BucketContainer::iterator, 
-                                                    decltype(std::declval<BucketContainer>().begin())> &&
+                                                    decltype(std::begin(std::declval<std::add_lvalue_reference_t<BucketContainer>>()))> &&
                                      std::is_same_v<typename BucketContainer::iterator, 
-                                                    decltype(std::declval<BucketContainer>().end())> &&
+                                                    decltype(std::end(std::declval<std::add_lvalue_reference_t<BucketContainer>>()))> &&
                                      std::is_same_v<void, 
                                                     decltype(std::declval<BucketContainer>().push_front(std::declval<std::pair<const Key, Value>>()))> &&
                                      std::is_same_v<typename BucketContainer::iterator, 
@@ -79,12 +86,13 @@ public:
 
         Iterator() = default;
         Iterator(const Iterator&) = default;
+        Iterator(Iterator&&) = default;
         template<bool IsConst_ = IsConst, typename = std::enable_if_t<IsConst_>>
-        Iterator(const Iterator<false>& other) : m_table_iter(other.m_table_iter)
-                                               , m_bucket_iter(other.m_bucket_iter) {}
-        Iterator(Iterator&&) noexcept = default; 
+        Iterator(const Iterator<false>& other);
         Iterator& operator=(const Iterator&) = default;
         Iterator& operator=(Iterator&&) noexcept = default;
+        template<bool IsConst_ = IsConst, typename = std::enable_if_t<IsConst_>>
+        Iterator& operator=(const Iterator<false>& other);
         ~Iterator() = default;
 
         auto operator++(int) -> const Iterator;
@@ -102,8 +110,11 @@ public:
         }
     
     private:
-        explicit Iterator(table_iterator table_iter, bucket_iterator bucket_iter);
+        explicit Iterator(hash_table& hasht,
+                          table_iterator table_iter,
+                          bucket_iterator bucket_iter);
 
+        hash_table *m_hasht;
         table_iterator m_table_iter;
         bucket_iterator m_bucket_iter;
 
@@ -118,7 +129,7 @@ private:
     using bucket_iterator = typename BucketContainer::iterator;
     using found_value = std::tuple<bool, table_iterator, bucket_iterator>;
 
-    auto get_table_pos(const Key& key) const -> table_iterator;
+    auto get_table_iter(const Key& key) -> table_iterator;
     auto find_value(const Key& key) -> found_value;
     auto optimization_after_find(BucketContainer& table_pos, 
                                  bucket_iterator bucket_pos) noexcept -> bucket_iterator;
@@ -139,10 +150,10 @@ auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, 
         std::tie(is_found, table_iter, bucket_iter) = find_value(value.first);
         if (!is_found) {
             table_iter->push_front(value);
-            bucket_iter = table_iter->begin();
+            bucket_iter = std::begin(*table_iter);
         }
 
-        return std::make_pair(is_found, iterator(table_iter, bucket_iter));
+        return std::make_pair(is_found, iterator(*this, table_iter, bucket_iter));
 }
  
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
@@ -187,7 +198,7 @@ auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, 
             return end();
         }
             
-        return iterator(table_iter, optimization_after_find(*table_iter, bucket_iter));
+        return iterator(*this, table_iter, optimization_after_find(*table_iter, bucket_iter));
 }
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
@@ -208,7 +219,7 @@ auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, 
         std::tie(is_found, table_iter, bucket_iter) = find_value(key);
         if (!is_found) {
             table_iter->push_front(value_type(key, Value()));
-            return table_iter->begin()->second;
+            return std::begin(*table_iter)->second;
         }
 
         return optimization_after_find(*table_iter, bucket_iter)->second;
@@ -218,14 +229,18 @@ template<typename Key, typename Value, std::size_t N, typename HashFunc, typenam
          typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
 auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::
     empty() const noexcept -> bool {
-        return !(std::any_of(m_table.begin(), m_table.end(), std::mem_fn(&BucketContainer::empty)));
+        return std::all_of(m_table.begin(), m_table.end(), std::mem_fn(&BucketContainer::empty));
 }
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
          typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
 auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::
     size() const noexcept -> std::size_t {
-        std::accumulate(m_table.begin(), m_table.end(), 0ul, std::mem_fn(&BucketContainer::size));
+        auto sum_buckets = 
+            [](std::size_t curr_sum, const BucketContainer& bucket) { 
+                return curr_sum + bucket.size(); 
+        };
+        return std::accumulate(m_table.begin(), m_table.end(), 0ul, sum_buckets);
 }   
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
@@ -233,7 +248,7 @@ template<typename Key, typename Value, std::size_t N, typename HashFunc, typenam
 auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::
     begin() noexcept -> iterator {
         auto first_non_empty_bucket = get_next_non_empty_bucket(m_table.begin());
-        return iterator(first_non_empty_bucket, first_non_empty_bucket->begin());
+        return iterator(*this, first_non_empty_bucket, std::begin(*first_non_empty_bucket));
 }
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
@@ -255,7 +270,7 @@ template<typename Key, typename Value, std::size_t N, typename HashFunc, typenam
 auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::
     end() noexcept -> iterator {
         auto dummy_table_iter = get_dummy_table_iterator();
-        return iterator(dummy_table_iter, dummy_table_iter->begin());
+        return iterator(*this, dummy_table_iter, std::begin(*dummy_table_iter));
 }
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
@@ -275,18 +290,21 @@ auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
          typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
 auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::
-    get_table_pos(const Key& key) const -> table_iterator {
-        return (m_table + (HashFunc(key) % N));
+    get_table_iter(const Key& key) -> table_iterator {
+
+        return m_table.begin() + (HashFunc()(key) % N);
 }
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
          typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
 auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::
     find_value(const Key& key) -> found_value {
-        auto table_iter = get_table_pos(key);
-        auto is_equal_to_key = [&key](const value_type& v){ return KeyEqual(key, v.first); };
-        auto found_bucket_iter = std::find_if(table_iter->begin(), table_iter->end(), is_equal_to_key);
-        return found_value(found_bucket_iter == table_iter->end(), table_iter, found_bucket_iter);
+        auto table_iter = get_table_iter(key);
+        auto is_equal_to_key = [&key](const value_type& v){ return KeyEqual()(key, v.first); };
+        auto found_bucket_iter = std::find_if(std::begin(*table_iter),
+                                              std::end(*table_iter), 
+                                              is_equal_to_key);
+        return found_value(found_bucket_iter != std::end(*table_iter), table_iter, found_bucket_iter);
 }
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
@@ -297,7 +315,7 @@ auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, 
         try {
             table_pos.push_front(*found_bucket_iter);
             table_pos.erase(found_bucket_iter);
-            found_bucket_iter = table_pos.begin();
+            found_bucket_iter = std::begin(table_pos);
         }
         catch(const std::exception& e) {} 
 
@@ -308,7 +326,7 @@ template<typename Key, typename Value, std::size_t N, typename HashFunc, typenam
          typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
 auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::
     get_dummy_table_iterator() -> table_iterator {
-        return --m_table.end();
+        return std::prev(m_table.end());
 }
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
@@ -324,9 +342,34 @@ template<typename Key, typename Value, std::size_t N, typename HashFunc, typenam
          typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
 template<bool IsConst>
 hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::Iterator<IsConst>::
-    Iterator(table_iterator table_iter, bucket_iterator bucket_iter) 
-: m_table_iter(table_iter)
+    Iterator(hash_table& hasht, table_iterator table_iter, bucket_iterator bucket_iter) 
+: m_hasht(&hasht)
+, m_table_iter(table_iter)
 , m_bucket_iter(bucket_iter) {}
+
+template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
+         typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
+template<bool IsConst>
+template<bool IsConst_, typename>
+hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::Iterator<IsConst>::
+    Iterator(const Iterator<false>& other) 
+: m_hasht(other.m_hasht)
+, m_table_iter(other.m_table_iter)
+, m_bucket_iter(other.m_bucket_iter) {}
+
+
+template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
+         typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
+template<bool IsConst>
+template<bool IsConst_, typename>
+auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::Iterator<IsConst>::
+    operator=(const Iterator<false>& other) -> Iterator& {
+        m_hasht = other.m_hasht;
+        m_table_iter = other.m_table_iter;
+        m_bucket_iter = other.m_bucket_iter;
+
+    return *this;
+}
 
 template<typename Key, typename Value, std::size_t N, typename HashFunc, typename BucketContainer,
          typename KeyEqual, typename A, typename B, typename C, typename D, typename E>
@@ -344,9 +387,9 @@ template<bool IsConst>
 auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, E>::Iterator<IsConst>::
     operator++() -> Iterator& {
         ++m_bucket_iter;
-        if (m_table_iter->end() == m_bucket_iter) {
-            m_table_iter = get_next_non_empty_bucket(m_table_iter);
-            m_bucket_iter = m_table_iter->begin();
+        if (std::end(*m_table_iter) == m_bucket_iter) {
+            m_table_iter = m_hasht->get_next_non_empty_bucket(++m_table_iter);
+            m_bucket_iter = std::begin(*m_table_iter);
         }
 
         return *this;
@@ -368,4 +411,6 @@ auto hash_table<Key, Value, N, HashFunc, BucketContainer, KeyEqual, A, B, C, D, 
         return &*m_bucket_iter;
 }
 
-} // namespace ilrd
+} // namespace container
+
+#endif

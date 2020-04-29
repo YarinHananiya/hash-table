@@ -39,10 +39,11 @@ template<typename Key,
                                                     decltype(std::declval<BucketContainer>().empty())> &&
                                      std::is_same_v<std::size_t, 
                                                     decltype(std::declval<BucketContainer>().size())> &&
-                                     std::is_same_v<typename BucketContainer::iterator::iterator_category, std::bidirectional_iterator_tag>>,
-         typename = std::enable_if_t<std::is_invocable_r_v<bool, KeyEqual, Key, Key>> >
+                                     std::is_base_of_v<std::bidirectional_iterator_tag, 
+                                                       typename std::iterator_traits<typename BucketContainer::iterator>::iterator_category>>,
+         typename = std::enable_if_t<std::is_invocable_r_v<bool, KeyEqual, Key, Key>>>
 class hash_table {
-public:
+ public:
     hash_table() = default;
     hash_table(const hash_table&) = default;  
     hash_table(hash_table&&) noexcept = default; 

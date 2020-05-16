@@ -1,19 +1,23 @@
+#include <algorithm>  // std::copy
+#include <cassert>    // assert
 #include <functional> // std::hash
-#include <cassert> // assert
-#include <iostream> // std::cout
-#include <algorithm> // std::copy
+#include <iostream>   // std::cout
 
 #include "hash.hpp"
 
 enum class color { black, white, red, yellow, green, blue, pink, orange, gray };
 
 struct hash_color {
-    int operator()(const color& c) { return static_cast<int>(c); }
+    int operator()(const color& c) {
+        return static_cast<int>(c);
+    }
 };
 
 auto copy_hash_table(const container::hash_table<int, double, 20>& hasht) {
     container::hash_table<int, double, 20> new_hasht;
-    std::for_each(hasht.begin(), hasht.end(), [&new_hasht](auto val){ new_hasht.insert(val); });
+    std::for_each(hasht.begin(), hasht.end(), [&new_hasht](auto val) {
+        new_hasht.insert(val);
+    });
     for (auto i : new_hasht) {
         std::cout << i.first << std::endl;
     }
@@ -50,7 +54,8 @@ int main() {
 
     auto const_iter = hasht2.cbegin();
     const_iter = hasht2.end();
-    container::hash_table<int, double, 20>::const_iterator other_const_iter = hasht2.begin();
+    container::hash_table<int, double, 20>::const_iterator other_const_iter =
+        hasht2.begin();
 
     return 0;
 }

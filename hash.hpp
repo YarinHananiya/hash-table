@@ -74,9 +74,10 @@ public:
     class Iterator {
     public:
         using difference_type = void;
-        using value_type = hash_table::value_type;
-        using pointer = std::conditional<IsConst, const value_type*, value_type*>;
-        using reference = std::conditional<IsConst, const value_type&, value_type&>;
+        using value_type =
+            std::conditional_t<IsConst, const hash_table::value_type, hash_table::value_type>;
+        using pointer = value_type*;
+        using reference = value_type&;
         using iterator_category = std::forward_iterator_tag;
 
         using table_iterator = typename hash_table::table_iterator;
@@ -95,8 +96,8 @@ public:
 
         auto operator++(int) -> const Iterator;
         auto operator++() -> Iterator&;
-        auto operator*() -> value_type&;
-        auto operator-> () -> value_type*;
+        auto operator*() -> reference;
+        auto operator-> () -> pointer;
 
         friend bool operator==(const Iterator& lo, const Iterator& ro) {
             return (lo.m_table_iter == ro.m_table_iter && lo.m_bucket_iter == ro.m_bucket_iter);
